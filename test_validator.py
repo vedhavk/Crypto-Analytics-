@@ -7,7 +7,7 @@ mutate a copy of it to exercise each validation and normalisation path.
 """
 
 import math
-
+import re
 import pytest
 
 from validator import validate_trade
@@ -19,8 +19,9 @@ from validator import validate_trade
 
 @pytest.fixture
 def valid_trade():
-    """Return a complete, valid trade event matching the actual event schema."""
+    """Return a complete, valid trade event matching the agreed event schema."""
     return {
+        "event_id": "1108688106",
         "symbol": "BTC-USD",
         "price": 81562.81,
         "volume": 0.025,
@@ -41,6 +42,10 @@ class TestValidEvent:
         result = validate_trade(valid_trade)
         assert isinstance(result, dict)
 
+    def test_event_id_preserved(self, valid_trade):
+        result = validate_trade(valid_trade)
+        assert result["event_id"] == "1108688106"
+
     def test_symbol_preserved(self, valid_trade):
         result = validate_trade(valid_trade)
         assert result["symbol"] == "BTC-USD"
@@ -53,42 +58,56 @@ class TestValidEvent:
         result = validate_trade(valid_trade)
         assert result["rate_timestamp"].endswith("Z")
 
-    def test_numeric_fields_are_strings(self, valid_trade):
+    def test_numeric_fields_are_numbers(self, valid_trade):
         result = validate_trade(valid_trade)
         for field in ("price", "volume", "price_usd", "price_inr", "exchange_rate"):
-            assert isinstance(result[field], str), f"{field} should be a string after normalisation"
+            assert isinstance(result[field], (int, float)), f"{field} should be a number (JSON number)"
+            assert not isinstance(result[field], (bool, str)), f"{field} should not be boolean or string"
 
     def test_original_event_not_mutated(self, valid_trade):
         original = valid_trade.copy()
         validate_trade(valid_trade)
         assert valid_trade == original
 
-    def test_all_eight_fields_present(self, valid_trade):
+    def test_all_nine_fields_present(self, valid_trade):
         result = validate_trade(valid_trade)
-        for field in ("symbol", "price", "volume", "timestamp",
+        for field in ("event_id", "symbol", "price", "volume", "timestamp",
                       "price_usd", "price_inr", "exchange_rate", "rate_timestamp"):
             assert field in result
+
+    def test_nullable_inr_fields_when_none(self, valid_trade):
+        valid_trade["price_inr"] = None
+        valid_trade["exchange_rate"] = None
+        valid_trade["rate_timestamp"] = None
+        result = validate_trade(valid_trade)
+        assert result["price_inr"] is None
+        assert result["exchange_rate"] is None
+        assert result["rate_timestamp"] is None
 
 
 # ---------------------------------------------------------------------------
 # Missing required fields
 # ---------------------------------------------------------------------------
 
+ALL_FIELDS = [
+    "event_id", "symbol", "price", "volume", "timestamp",
+    "price_usd", "price_inr", "exchange_rate", "rate_timestamp",
+]
+
+MANDATORY_NON_NULL = [
+    "event_id", "symbol", "price", "volume", "timestamp", "price_usd"
+]
+
+
 class TestMissingFields:
-    @pytest.mark.parametrize("field", [
-        "symbol", "price", "volume", "timestamp",
-        "price_usd", "price_inr", "exchange_rate", "rate_timestamp",
-    ])
+    @pytest.mark.parametrize("field", ALL_FIELDS)
     def test_missing_field_raises(self, valid_trade, field):
         del valid_trade[field]
         with pytest.raises(ValueError, match=f"Missing required field: {field}"):
             validate_trade(valid_trade)
 
-    @pytest.mark.parametrize("field", [
-        "symbol", "price", "volume", "timestamp",
-        "price_usd", "price_inr", "exchange_rate", "rate_timestamp",
-    ])
-    def test_none_field_raises(self, valid_trade, field):
+    @pytest.mark.parametrize("field", MANDATORY_NON_NULL)
+    def test_none_mandatory_field_raises(self, valid_trade, field):
         valid_trade[field] = None
         with pytest.raises(ValueError, match=f"Missing required field: {field}"):
             validate_trade(valid_trade)
@@ -98,8 +117,39 @@ class TestMissingFields:
             validate_trade("not a dict")
 
     def test_empty_dict_raises(self):
-        with pytest.raises(ValueError, match="Missing required field: symbol"):
+        with pytest.raises(ValueError, match="Missing required field"):
             validate_trade({})
+
+
+# ---------------------------------------------------------------------------
+# Event ID validation
+# ---------------------------------------------------------------------------
+
+class TestEventId:
+    def test_empty_string_raises(self, valid_trade):
+        valid_trade["event_id"] = ""
+        with pytest.raises(ValueError, match="event_id"):
+            validate_trade(valid_trade)
+
+    def test_whitespace_only_raises(self, valid_trade):
+        valid_trade["event_id"] = "   "
+        with pytest.raises(ValueError, match="event_id"):
+            validate_trade(valid_trade)
+
+    def test_boolean_raises(self, valid_trade):
+        valid_trade["event_id"] = True
+        with pytest.raises(ValueError, match="event_id"):
+            validate_trade(valid_trade)
+
+    def test_integer_event_id_converted_to_string(self, valid_trade):
+        valid_trade["event_id"] = 1108688106
+        result = validate_trade(valid_trade)
+        assert result["event_id"] == "1108688106"
+
+    def test_event_id_stripped(self, valid_trade):
+        valid_trade["event_id"] = "  trade-1234  "
+        result = validate_trade(valid_trade)
+        assert result["event_id"] == "trade-1234"
 
 
 # ---------------------------------------------------------------------------
@@ -196,15 +246,16 @@ class TestNumericFields:
             validate_trade(valid_trade)
 
     @pytest.mark.parametrize("field", NUMERIC_FIELDS)
-    def test_numeric_string_accepted(self, valid_trade, field):
+    def test_numeric_string_converted_to_number(self, valid_trade, field):
         valid_trade[field] = "100.5"
         result = validate_trade(valid_trade)
-        assert result[field] == "100.5"
+        assert result[field] == 100.5
+        assert isinstance(result[field], float)
 
     def test_price_small_positive_accepted(self, valid_trade):
         valid_trade["price"] = 0.0001
         result = validate_trade(valid_trade)
-        assert float(result["price"]) == pytest.approx(0.0001)
+        assert result["price"] == pytest.approx(0.0001)
 
 
 # ---------------------------------------------------------------------------
@@ -247,7 +298,6 @@ class TestTimestamps:
 
     @pytest.mark.parametrize("field", TIMESTAMP_FIELDS)
     def test_offset_tz_accepted_and_converted_to_utc(self, valid_trade, field):
-        # +05:30 is IST; the result should be in UTC.
         valid_trade[field] = "2026-10-16T16:00:15+05:30"
         result = validate_trade(valid_trade)
         assert result[field] == "2026-10-16T10:30:15Z"
@@ -255,6 +305,4 @@ class TestTimestamps:
     @pytest.mark.parametrize("field", TIMESTAMP_FIELDS)
     def test_normalised_timestamp_format(self, valid_trade, field):
         result = validate_trade(valid_trade)
-        # Should match YYYY-MM-DDTHH:MM:SSZ exactly.
-        import re
         assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", result[field])

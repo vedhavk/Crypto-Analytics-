@@ -19,6 +19,7 @@ from producer import publish_trade
 @pytest.fixture
 def valid_event():
     return {
+        "event_id": "1108688106",
         "symbol": "BTC-USD",
         "price": 81562.81,
         "volume": 0.025,
@@ -67,6 +68,13 @@ class TestPublishTrade:
         kwargs = producer.send.call_args[1]
         assert isinstance(kwargs["value"], dict)
 
+    def test_send_value_preserves_numbers(self, valid_event):
+        producer = _make_mock_producer()
+        publish_trade(producer, valid_event)
+        sent = producer.send.call_args[1]["value"]
+        assert isinstance(sent["price"], (int, float))
+        assert not isinstance(sent["price"], str)
+
     def test_send_value_symbol_normalised(self, valid_event):
         valid_event["symbol"] = "btc-usd"
         producer = _make_mock_producer()
@@ -95,6 +103,13 @@ class TestPublishTrade:
 class TestPublishTradeValidationErrors:
     def test_missing_field_does_not_call_send(self, valid_event):
         del valid_event["price"]
+        producer = _make_mock_producer()
+        with pytest.raises(ValueError):
+            publish_trade(producer, valid_event)
+        producer.send.assert_not_called()
+
+    def test_missing_event_id_does_not_call_send(self, valid_event):
+        del valid_event["event_id"]
         producer = _make_mock_producer()
         with pytest.raises(ValueError):
             publish_trade(producer, valid_event)
