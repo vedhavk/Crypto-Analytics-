@@ -453,3 +453,55 @@ class TestPublishWithNullInr:
         assert result["exchange_rate"] is None
         assert result["rate_timestamp"] is None
         assert result["price_usd"] == pytest.approx(50000.0)
+
+
+# ---------------------------------------------------------------------------
+# 11. Ticker volume prioritization and Fallback API tests
+# ---------------------------------------------------------------------------
+
+class TestEnhancements:
+    def test_ticker_prioritizes_last_size(self):
+        """Ticker parsing should prioritize last_size over 24h market volume."""
+        from coinbase_ws import parse_coinbase_message
+
+        msg = json.dumps({
+            "type": "ticker",
+            "product_id": "BTC-USD",
+            "price": "81000.00",
+            "volume_24h": "5000.0",
+            "last_size": "0.025",
+            "time": "2026-10-16T10:30:15Z",
+        })
+        result = parse_coinbase_message(msg)
+        assert result is not None
+        assert result["volume"] == pytest.approx(0.025)
+
+    def test_fallback_api_used_when_primary_fails(self):
+        """When primary open.er-api fails, fallback Frankfurter API should be queried."""
+        import inr_converter
+        import requests as req
+
+        def mock_get(url, *args, **kwargs):
+            if "open.er-api.com" in url:
+                raise req.exceptions.ConnectionError("Primary API down")
+            mock_resp = MagicMock()
+            mock_resp.raise_for_status.return_value = None
+            mock_resp.json.return_value = {"rates": {"INR": 94.75}}
+            return mock_resp
+
+        with patch("inr_converter.requests.get", side_effect=mock_get):
+            inr_converter._cache["rate"] = None
+            inr_converter._cache["fetched_at"] = 0.0
+            result = inr_converter.get_usd_to_inr(force_refresh=True)
+
+        assert result["rate"] == pytest.approx(94.75)
+
+    def test_dry_run_client_init_without_broker(self):
+        """CoinbaseWebSocketClient with dry_run=True should not connect to Kafka."""
+        from coinbase_ws import CoinbaseWebSocketClient
+
+        with patch("producer.KafkaProducer") as mock_producer:
+            client = CoinbaseWebSocketClient(dry_run=True, max_events=5)
+            assert client.dry_run is True
+            assert client.max_events == 5
+            mock_producer.assert_not_called()
