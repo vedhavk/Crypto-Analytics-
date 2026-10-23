@@ -3,9 +3,16 @@ producer.py — Creates a Kafka producer and publishes validated trade events.
 
 Uses a proper Serializer subclass to avoid the kafka-python 3.x deprecation
 warning that occurs when a plain callable is passed as value_serializer.
+
+Numeric values are serialized as JSON numbers (not strings) so that
+downstream consumers (Spark, ClickHouse) receive native numeric types
+without any additional parsing step.
 """
 
+from __future__ import annotations
+
 import json
+import logging
 from typing import Any, List, Tuple
 
 from kafka import KafkaProducer
@@ -14,15 +21,21 @@ from kafka.serializer import Serializer
 
 from validator import validate_trade
 
+logger = logging.getLogger(__name__)
+
 TOPIC = "stock-ticks"
 BROKER = "localhost:9092"
 
 
 class JsonSerializer(Serializer):
-    """Serialize a Python dict to UTF-8 encoded JSON bytes."""
+    """Serialize a Python dict to UTF-8 encoded JSON bytes.
+
+    Numeric values (int, float) are serialized as JSON numbers.
+    None values are serialized as JSON null.
+    """
 
     def serialize(self, topic: str, headers: List[Tuple[str, bytes]], data: Any) -> bytes:
-        return json.dumps(data).encode("utf-8")
+        return json.dumps(data, allow_nan=False).encode("utf-8")
 
 
 def create_producer() -> KafkaProducer:
@@ -50,7 +63,9 @@ def publish_trade(producer: KafkaProducer, event: dict) -> None:
     producer : KafkaProducer
         An active producer returned by create_producer().
     event : dict
-        Raw trade event. Must pass validate_trade() before sending.
+        Raw trade event.  Must pass validate_trade() before sending.
+        ``price_inr``, ``exchange_rate``, and ``rate_timestamp`` may be
+        None if USD-to-INR conversion data is unavailable.
 
     Raises
     ------
@@ -72,6 +87,13 @@ def publish_trade(producer: KafkaProducer, event: dict) -> None:
             f"to {TOPIC}: {exc}"
         ) from exc
 
+    logger.info(
+        "Published %s to %s, partition %s, offset %s",
+        normalized_event["symbol"],
+        metadata.topic,
+        metadata.partition,
+        metadata.offset,
+    )
     print(
         f"Published {normalized_event['symbol']} "
         f"to {metadata.topic}, partition {metadata.partition}, "
