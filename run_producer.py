@@ -1,50 +1,83 @@
 """
-run_producer.py — Entry point that loads a trade event from JSON and publishes it.
+run_producer.py — Entry point for the market-data ingestion pipeline.
 
-Usage:
+Usage
+-----
+Live mode (default) — connect to Coinbase WebSocket and publish continuously:
+
     python run_producer.py
-    python run_producer.py path/to/custom_event.json
 
-The file defaults to sample_trade.json in the same directory as this script.
+Single-event test mode — load one event from a JSON file and publish it:
+
+    python run_producer.py --file sample_trade.json
+    python run_producer.py --file path/to/my_event.json
+
+Options
+-------
+--file  PATH    Publish a single event from PATH, then exit.
+                When omitted, the WebSocket live-feed runs until Ctrl-C.
+--log-level     Logging level (DEBUG, INFO, WARNING, ERROR).  Default: INFO.
 """
 
+from __future__ import annotations
+
+import argparse
 import json
+import logging
 import pathlib
 import sys
 
 from kafka.errors import KafkaError
 
-from producer import create_producer, publish_trade
 
-# Default to sample_trade.json next to this script.
-DEFAULT_DATA_FILE = pathlib.Path(__file__).parent / "sample_trade.json"
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Coinbase market-data ingestion pipeline.",
+    )
+    parser.add_argument(
+        "--file",
+        metavar="PATH",
+        type=pathlib.Path,
+        default=None,
+        help="Publish a single event from this JSON file, then exit.",
+    )
+    parser.add_argument(
+        "--log-level",
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        help="Logging level (default: INFO).",
+    )
+    return parser.parse_args()
 
 
-def load_event(path: pathlib.Path) -> dict:
+def _configure_logging(level: str) -> None:
+    logging.basicConfig(
+        level=getattr(logging, level),
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%Y-%m-%dT%H:%M:%SZ",
+    )
+
+
+def _load_event(path: pathlib.Path) -> dict:
     """
     Read and parse a JSON trade event from *path*.
 
-    Raises
-    ------
-    SystemExit
-        With a descriptive message if the file is missing or contains
-        invalid JSON.
+    Raises SystemExit with a descriptive message if the file is missing
+    or contains invalid JSON.
     """
     if not path.exists():
         sys.exit(f"Error: data file not found: {path}")
-
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         sys.exit(f"Error: {path} contains invalid JSON — {exc}")
 
 
-def main() -> None:
-    # Allow an optional command-line argument to override the data file.
-    data_file = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_DATA_FILE
+def _run_file_mode(path: pathlib.Path) -> None:
+    """Load one event from *path* and publish it to Kafka, then exit."""
+    from producer import create_producer, publish_trade
 
-    event = load_event(data_file)
-
+    event = _load_event(path)
     producer = create_producer()
     try:
         publish_trade(producer, event)
@@ -54,6 +87,28 @@ def main() -> None:
         sys.exit(f"Kafka error: {exc}")
     finally:
         producer.close()
+
+
+def _run_live_mode() -> None:
+    """Connect to Coinbase WebSocket and publish events continuously."""
+    from coinbase_ws import CoinbaseWebSocketClient
+
+    client = CoinbaseWebSocketClient()
+    try:
+        client.run_forever()
+    except KeyboardInterrupt:
+        print("\nShutting down — waiting for producer to flush…")
+        client.stop()
+
+
+def main() -> None:
+    args = _parse_args()
+    _configure_logging(args.log_level)
+
+    if args.file is not None:
+        _run_file_mode(args.file)
+    else:
+        _run_live_mode()
 
 
 if __name__ == "__main__":
