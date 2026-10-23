@@ -1,9 +1,16 @@
 """
 test_producer.py — Unit tests for producer.py.
 
-Kafka is fully mocked here using unittest.mock so these tests never open a
-network connection and do not require a running broker.
+Kafka is fully mocked here using unittest.mock so these tests never open
+a network connection and do not require a running broker.
+
+Schema notes
+------------
+* Numeric fields in valid events are plain floats (JSON numbers).
+* price_inr, exchange_rate, and rate_timestamp may be None.
 """
+
+from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
@@ -13,7 +20,7 @@ from producer import publish_trade
 
 
 # ---------------------------------------------------------------------------
-# Shared fixture
+# Shared fixtures
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
@@ -27,6 +34,21 @@ def valid_event():
         "price_inr": 7745204.44,
         "exchange_rate": 94.96,
         "rate_timestamp": "2026-10-16T00:00:00Z",
+    }
+
+
+@pytest.fixture
+def valid_event_null_inr():
+    """Valid event where INR conversion was unavailable."""
+    return {
+        "symbol": "ETH-USD",
+        "price": 2500.00,
+        "volume": 1.5,
+        "timestamp": "2026-10-16T10:30:15Z",
+        "price_usd": 2500.00,
+        "price_inr": None,
+        "exchange_rate": None,
+        "rate_timestamp": None,
     }
 
 
@@ -46,7 +68,7 @@ def _make_mock_producer(topic="stock-ticks", partition=0, offset=1):
 
 
 # ---------------------------------------------------------------------------
-# publish_trade — happy path
+# publish_trade — happy path (all INR fields present)
 # ---------------------------------------------------------------------------
 
 class TestPublishTrade:
@@ -74,6 +96,16 @@ class TestPublishTrade:
         sent_value = producer.send.call_args[1]["value"]
         assert sent_value["symbol"] == "BTC-USD"
 
+    def test_send_value_price_is_float(self, valid_event):
+        """Numeric values must be floats (JSON numbers), not strings."""
+        producer = _make_mock_producer()
+        publish_trade(producer, valid_event)
+        sent_value = producer.send.call_args[1]["value"]
+        assert isinstance(sent_value["price"], float)
+        assert isinstance(sent_value["price_usd"], float)
+        assert isinstance(sent_value["price_inr"], float)
+        assert isinstance(sent_value["exchange_rate"], float)
+
     def test_future_get_called(self, valid_event):
         producer = _make_mock_producer()
         publish_trade(producer, valid_event)
@@ -86,6 +118,26 @@ class TestPublishTrade:
         captured = capsys.readouterr()
         assert "BTC-USD" in captured.out
         assert "stock-ticks" in captured.out
+
+
+# ---------------------------------------------------------------------------
+# publish_trade — nullable INR fields
+# ---------------------------------------------------------------------------
+
+class TestPublishTradeNullInr:
+    def test_null_inr_event_published(self, valid_event_null_inr):
+        """Events with null INR fields must still be published successfully."""
+        producer = _make_mock_producer()
+        publish_trade(producer, valid_event_null_inr)
+        producer.send.assert_called_once()
+
+    def test_null_inr_fields_preserved_as_none(self, valid_event_null_inr):
+        producer = _make_mock_producer()
+        publish_trade(producer, valid_event_null_inr)
+        sent = producer.send.call_args[1]["value"]
+        assert sent["price_inr"] is None
+        assert sent["exchange_rate"] is None
+        assert sent["rate_timestamp"] is None
 
 
 # ---------------------------------------------------------------------------
