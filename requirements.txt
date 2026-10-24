@@ -2,3 +2,5 @@ kafka-python==3.0.11
 websocket-client==1.8.0
 requests==2.32.3
 pytest==9.1.1
+clickhouse-connect==0.7.19
+pyspark>=3.5.0

@@ -202,17 +202,49 @@ python -m pytest -v
 
 All tests are unit tests. They do not require Kafka or network access. All HTTP and WebSocket calls are mocked.
 
-| Test file            | What it covers                                                  |
-|----------------------|-----------------------------------------------------------------|
-| `test_validator.py`  | Schema validation, nullable INR fields, symbol normalisation, timestamps |
-| `test_producer.py`   | Kafka publish path, null-INR events, validation errors, Kafka errors |
-| `test_ws_parser.py`  | WS message parsing (ticker/match), INR caching, failure handling, subscribe message |
+| Test file                   | What it covers                                                  |
+|-----------------------------|-----------------------------------------------------------------|
+| `test_validator.py`         | Schema validation, nullable INR fields, symbol normalisation, timestamps |
+| `test_producer.py`          | Kafka publish path, null-INR events, validation errors, Kafka errors |
+| `test_ws_parser.py`         | WS message parsing, INR caching & fallback API, failure handling, dry-run mode |
+| `test_clickhouse_schema.py` | ClickHouse table schemas, engine types, HTTP API execution      |
+| `spark/test_spark_pipeline.py` | Spark schema definition, ClickHouse writer, retry logic       |
+
+---
+
+## Spark Structured Streaming & ClickHouse (Member 3)
+
+The streaming pipeline consumes continuously from Kafka topic `stock-ticks`, parses and normalizes JSON payloads, and executes dual micro-batch streaming queries:
+1. **Raw Ticks**: Writes validated ticks to ClickHouse table `stocks.ticks`.
+2. **1-Minute Aggregates**: Watermarked windowed stream computing `count(*)`, `avg(price)`, `min(price)`, `max(price)`, `sum(volume)`, and `avg(price_inr)` into `stocks.ticks_1m_agg`.
+
+### ClickHouse Tables
+
+* `stocks.ticks`: `MergeTree()` partitioned by month, ordered by `(symbol, timestamp, price, volume)`.
+* `stocks.ticks_1m_agg`: `ReplacingMergeTree(calculated_at)` partitioned by month, ordered by `(symbol, window_start)`.
+* `stocks.market_alerts`: `MergeTree()` table for Member 4 anomaly alerts.
+
+### Running the Complete Stack with Docker
+
+```powershell
+# 1. Start Kafka, ClickHouse, and Spark Structured Streaming
+docker compose up -d
+
+# 2. In another terminal, run the Python WebSocket producer
+python run_producer.py
+```
+
+### Running Spark Streaming on Host Machine
+
+```powershell
+python spark/spark_consumer.py --kafka-bootstrap localhost:9092 --clickhouse-host localhost
+```
 
 ---
 
 ## Schema decision: `event_id`
 
-An `event_id` field is **not included** in the current schema. The Spark consumer and ClickHouse team should use the combination of `(symbol, timestamp)` as a logical primary key, or rely on Kafka partition + offset for deduplication. If `event_id` is required, it should be added as a UUID generated at publish time and coordinated with all downstream consumers before schema changes are made.
+An `event_id` field is not emitted by the producer. ClickHouse generates a unique UUID on insert via `event_id UUID DEFAULT generateUUIDv4()`, while preserving `(symbol, timestamp, price, volume)` as the ordering key to guarantee sub-second trades are never collapsed.
 
 ---
 
