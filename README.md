@@ -156,6 +156,16 @@ The producer:
 5. Reconnects automatically with back-off on any failure.
 6. Refreshes the exchange rate every 5 minutes.
 
+### Dry-run mode — test live WebSocket & INR conversion without Kafka
+
+```powershell
+# Validate and print live events to console without requiring Kafka:
+python run_producer.py --dry-run
+
+# Test live pipeline and automatically stop after 5 events:
+python run_producer.py --dry-run --max-events 5
+```
+
 ### Single-event test mode — publish one JSON file and exit
 
 ```powershell

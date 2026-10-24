@@ -83,10 +83,10 @@ def _parse_ticker(msg: dict[str, Any]) -> dict[str, Any] | None:
     try:
         symbol: str = msg["product_id"]
         price_usd: float = float(msg["price"])
-        # Coinbase ticker uses 'volume_24h'; some snapshots omit it.
-        volume: float = float(msg.get("volume_24h") or msg.get("last_size") or "0")
+        # Prioritize last_size (individual trade size) over volume_24h (24h aggregate market volume).
+        volume: float = float(msg.get("last_size") or msg.get("volume_24h") or "0")
         if volume <= 0:
-            volume = float(msg.get("last_size") or "0.0001")
+            volume = float(msg.get("volume_24h") or "0.0001")
         timestamp: str = msg["time"]
     except (KeyError, TypeError, ValueError) as exc:
         logger.warning("ticker parse error: %s — raw: %s", exc, msg)
@@ -209,8 +209,19 @@ class CoinbaseWebSocketClient:
         client.run_forever()   # blocks; Ctrl-C to stop
     """
 
-    def __init__(self) -> None:
-        self._producer = create_producer()
+    def __init__(
+        self,
+        producer: Any | None = None,
+        dry_run: bool = False,
+        max_events: int | None = None,
+    ) -> None:
+        self.dry_run = dry_run
+        self.max_events = max_events
+        self._events_count = 0
+        if dry_run:
+            self._producer = None
+        else:
+            self._producer = producer or create_producer()
         self._ws: websocket.WebSocketApp | None = None
         self._backoff: float = INITIAL_BACKOFF_S
         self._running: bool = True
@@ -230,7 +241,22 @@ class CoinbaseWebSocketClient:
         if event is None:
             return
         try:
-            publish_trade(self._producer, event)
+            if self.dry_run:
+                from validator import validate_trade
+                validated = validate_trade(event)
+                logger.info(
+                    "[DRY-RUN] Validated trade: symbol=%s, price=%.2f, price_inr=%s, exchange_rate=%s",
+                    validated["symbol"],
+                    validated["price"],
+                    validated["price_inr"],
+                    validated["exchange_rate"],
+                )
+            else:
+                publish_trade(self._producer, event)
+
+            self._events_count += 1
+            if self.max_events and self._events_count >= self.max_events:
+                self.stop()
         except ValueError as exc:
             logger.warning("Validation failed — skipping event: %s", exc)
         except Exception as exc:
@@ -288,7 +314,8 @@ class CoinbaseWebSocketClient:
             self._backoff = min(self._backoff * BACKOFF_FACTOR, MAX_BACKOFF_S)
 
         logger.info("WebSocket client stopped.")
-        self._producer.close()
+        if self._producer:
+            self._producer.close()
 
     def stop(self) -> None:
         """Signal the client to stop after the current connection closes."""

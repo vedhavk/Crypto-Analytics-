@@ -119,27 +119,42 @@ def get_usd_to_inr(force_refresh: bool = False) -> RateInfo:
     return {"rate": _cache["rate"], "rate_timestamp": _cache["rate_timestamp"]}
 
 
+FALLBACK_EXCHANGE_RATE_URL = "https://api.frankfurter.app/latest?from=USD&to=INR"
+
+
 def _refresh_cache() -> None:
     """
     Fetch a fresh rate from the exchange-rate API and update ``_cache``.
     Must be called while ``_lock`` is held.
     """
+    inr_rate: float | None = None
+
+    # 1. Attempt primary API (open.er-api.com)
     try:
         resp = requests.get(EXCHANGE_RATE_URL, timeout=REQUEST_TIMEOUT_S)
         resp.raise_for_status()
         data = resp.json()
-        inr_rate: float = data["rates"]["INR"]
-        if not isinstance(inr_rate, (int, float)) or inr_rate <= 0:
-            raise ValueError(f"Unexpected INR rate value: {inr_rate!r}")
-    except requests.RequestException as exc:
-        logger.warning("Exchange-rate API request failed: %s — using cached rate", exc)
-        return
-    except (KeyError, ValueError, Exception) as exc:
-        logger.warning("Exchange-rate API response invalid: %s — using cached rate", exc)
-        return
+        val = data["rates"]["INR"]
+        if isinstance(val, (int, float)) and val > 0:
+            inr_rate = float(val)
+    except Exception as exc:
+        logger.warning("Primary exchange-rate API failed: %s — trying fallback", exc)
+
+    # 2. Attempt fallback API (frankfurter.app) if primary failed
+    if inr_rate is None:
+        try:
+            resp = requests.get(FALLBACK_EXCHANGE_RATE_URL, timeout=REQUEST_TIMEOUT_S)
+            resp.raise_for_status()
+            data = resp.json()
+            val = data["rates"]["INR"]
+            if isinstance(val, (int, float)) and val > 0:
+                inr_rate = float(val)
+        except Exception as exc:
+            logger.warning("Fallback exchange-rate API failed: %s — using cached rate", exc)
+            return
 
     rate_ts = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    _cache["rate"] = float(inr_rate)
+    _cache["rate"] = inr_rate
     _cache["rate_timestamp"] = rate_ts
     _cache["fetched_at"] = time.monotonic()
     logger.info("USD→INR rate refreshed: %.4f (fetched at %s)", inr_rate, rate_ts)
