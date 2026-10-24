@@ -1,5 +1,5 @@
 -- init_db.sql — ClickHouse Schema Initialization for Crypto Analytics Pipeline
--- Creates the 'stocks' database and all required analytical tables.
+-- Creates the 'stocks' database, tables, and deduplicated views for Member 4 & FastAPI.
 
 CREATE DATABASE IF NOT EXISTS stocks;
 
@@ -25,7 +25,7 @@ ORDER BY (symbol, timestamp, price, volume);
 -- ---------------------------------------------------------------------------
 -- 2. One-Minute Aggregate Table (stocks.ticks_1m_agg)
 -- Stores 1-minute windowed metrics computed by Spark Structured Streaming.
--- Uses ReplacingMergeTree(calculated_at) to seamlessly handle late-arriving data updates.
+-- Uses ReplacingMergeTree(calculated_at) to handle late-arriving data updates.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS stocks.ticks_1m_agg (
     symbol LowCardinality(String),
@@ -59,3 +59,49 @@ CREATE TABLE IF NOT EXISTS stocks.market_alerts (
 ) ENGINE = MergeTree()
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY (symbol, timestamp);
+
+-- ---------------------------------------------------------------------------
+-- 4. Deduplicated 1-Minute Aggregates View (stocks.v_ticks_1m_agg)
+-- Recommended query target for Member 4 Anomaly Detector & FastAPI Dashboard.
+-- Guarantees queries read only the latest merged version of each window.
+-- ---------------------------------------------------------------------------
+CREATE VIEW IF NOT EXISTS stocks.v_ticks_1m_agg AS
+SELECT
+    symbol,
+    window_start,
+    window_end,
+    event_count,
+    avg_price,
+    min_price,
+    max_price,
+    total_volume,
+    avg_price_inr,
+    calculated_at
+FROM stocks.ticks_1m_agg FINAL;
+
+-- ---------------------------------------------------------------------------
+-- 5. Deduplicated Raw Ticks View (stocks.v_ticks_dedup)
+-- Deduplicates raw events by (symbol, timestamp, price, volume) to eliminate
+-- potential duplicate rows caused by Kafka offset replays during restart.
+-- ---------------------------------------------------------------------------
+CREATE VIEW IF NOT EXISTS stocks.v_ticks_dedup AS
+SELECT
+    symbol,
+    price,
+    volume,
+    timestamp,
+    price_usd,
+    price_inr,
+    exchange_rate,
+    rate_timestamp,
+    max(created_at) AS created_at
+FROM stocks.ticks
+GROUP BY
+    symbol,
+    price,
+    volume,
+    timestamp,
+    price_usd,
+    price_inr,
+    exchange_rate,
+    rate_timestamp;
