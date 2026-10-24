@@ -53,6 +53,12 @@ def test_init_db_sql_content():
     assert "alert_type LowCardinality(String)" in content
     assert "severity LowCardinality(String)" in content
 
+    # Deduplicated views for Member 4 & FastAPI
+    assert "CREATE VIEW IF NOT EXISTS stocks.v_ticks_1m_agg" in content
+    assert "FROM stocks.ticks_1m_agg FINAL" in content
+    assert "CREATE VIEW IF NOT EXISTS stocks.v_ticks_dedup" in content
+    assert "GROUP BY" in content
+
 
 @patch("clickhouse.manage_db.requests.get")
 def test_ping_clickhouse_success(mock_get):

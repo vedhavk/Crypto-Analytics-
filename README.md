@@ -218,11 +218,13 @@ The streaming pipeline consumes continuously from Kafka topic `stock-ticks`, par
 1. **Raw Ticks**: Writes validated ticks to ClickHouse table `stocks.ticks`.
 2. **1-Minute Aggregates**: Watermarked windowed stream computing `count(*)`, `avg(price)`, `min(price)`, `max(price)`, `sum(volume)`, and `avg(price_inr)` into `stocks.ticks_1m_agg`.
 
-### ClickHouse Tables
+### ClickHouse Tables & Deduplicated Views
 
 * `stocks.ticks`: `MergeTree()` partitioned by month, ordered by `(symbol, timestamp, price, volume)`.
 * `stocks.ticks_1m_agg`: `ReplacingMergeTree(calculated_at)` partitioned by month, ordered by `(symbol, window_start)`.
 * `stocks.market_alerts`: `MergeTree()` table for Member 4 anomaly alerts.
+* `stocks.v_ticks_1m_agg`: **Recommended View for Member 4 & FastAPI**. Reads `stocks.ticks_1m_agg FINAL` to guarantee only the latest merged version of each window is returned without duplicates.
+* `stocks.v_ticks_dedup`: View filtering Kafka replay duplicates across raw ticks.
 
 ### Running the Complete Stack with Docker
 

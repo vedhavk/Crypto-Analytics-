@@ -57,9 +57,16 @@ Each query maintains an isolated checkpoint directory:
 Spark Structured Streaming with `foreachBatch` provides **At-Least-Once** delivery semantics:
 * **Kafka Offsets**: Spark tracks offset progress in the query's `offset/` checkpoint directory.
 * **Failure Recovery**: If a worker or driver restarts before the offset commit completes, Spark re-reads the uncommitted offsets and re-executes `foreachBatch`.
-* **ClickHouse Idempotence**:
-  * In `stocks.ticks_1m_agg`, the table is configured with `ENGINE = ReplacingMergeTree(calculated_at)` ordered by `(symbol, window_start)`. Re-executed window calculations will overwrite previous versions rather than creating duplicates.
-  * In `stocks.ticks`, `MergeTree` preserves all valid ticks. Multiple trades can execute in the same second, and replay during restart will preserve records.
+* **ClickHouse Idempotence & Deduplicated Views**:
+  * In `stocks.ticks_1m_agg`, the table is configured with `ENGINE = ReplacingMergeTree(calculated_at)`.
+  * **Important for Downstream Consumers (Member 4 & FastAPI)**: Background merges in ClickHouse are asynchronous. To guarantee that queries never read unmerged duplicate window states, downstream services should query the deduplicated view:
+    ```sql
+    SELECT * FROM stocks.v_ticks_1m_agg WHERE symbol = 'BTC-USD';
+    ```
+  * In `stocks.ticks`, `MergeTree` preserves all valid ticks. To query raw ticks filtered of any Kafka replay duplicates, query:
+    ```sql
+    SELECT * FROM stocks.v_ticks_dedup WHERE symbol = 'BTC-USD';
+    ```
 
 ---
 
