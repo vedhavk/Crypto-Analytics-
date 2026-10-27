@@ -209,6 +209,8 @@ All tests are unit tests. They do not require Kafka or network access. All HTTP 
 | `test_ws_parser.py`         | WS message parsing, INR caching & fallback API, failure handling, dry-run mode |
 | `test_clickhouse_schema.py` | ClickHouse table schemas, engine types, HTTP API execution      |
 | `spark/test_spark_pipeline.py` | Spark schema definition, ClickHouse writer, retry logic       |
+| `detector/test_detector.py` | Threshold & Z-Score anomaly detectors, scenario replay, metrics |
+| `api/test_api.py`           | FastAPI alert filtering, pagination, statistics, dashboard endpoints |
 
 ---
 
