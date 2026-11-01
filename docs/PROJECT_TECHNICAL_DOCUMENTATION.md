@@ -47,12 +47,12 @@ flowchart TD
         KAFKA -->|Continuous Consumer Stream| SPARK["PySpark Structured Streaming Engine"]
         SPARK --> WM["Event-Time Watermark (30s delay)"]
         
-        WM -->|Stream 1: Raw Append (3s trigger)| CH_RAW[("ClickHouse Raw Table<br/>stocks.ticks")]
-        WM -->|Stream 2: 1-Min Tumbling Window (10s trigger)| AGG["Stateful In-Memory Aggregations<br/>VWAP, Min, Max, Avg, Volume"]
+        WM -->|"Stream 1: Raw Append (3s trigger)"| CH_RAW[("ClickHouse Raw Table<br/>stocks.ticks")]
+        WM -->|"Stream 2: 1-Min Tumbling Window (10s trigger)"| AGG["Stateful In-Memory Aggregations<br/>VWAP, Min, Max, Avg, Volume"]
         AGG --> CH_AGG[("ClickHouse Agg Table<br/>stocks.ticks_1m_agg")]
 
         KAFKA -->|Consumer Group: anomaly-workers| AD["Anomaly Detection Engine<br/>anomaly_detector.py"]
-        AD -->|Z-Score >= 3.0 sigma| WH["Webhook Dispatcher<br/>Discord / Slack / Telegram"]
+        AD -->|"Z-Score >= 3.0 sigma"| WH["Webhook Dispatcher<br/>Discord / Slack / Telegram"]
         AD --> CH_ALERT[("ClickHouse Alert Table<br/>stocks.anomaly_alerts")]
     end
 

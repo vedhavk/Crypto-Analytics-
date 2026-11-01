@@ -34,24 +34,24 @@
 flowchart TD
     subgraph INGESTION["1. Ingestion & Inline Enrichment"]
         CB["Coinbase Pro WebSocket<br/>(BTC, ETH, SOL, XRP, DOGE, LTC)"] --> CP["crypto_producer.py"]
-        ECB["European Central Bank / Frankfurter"] -.->|Primary FX| ERM["ExchangeRateManager<br/>(Monotonic 10m TTL)"]
-        OER["Open Exchange Rates"] -.->|Failover FX| ERM
-        ERM -->|USD & INR Valuations| CP
+        ECB["European Central Bank / Frankfurter"] -.->|"Primary FX"| ERM["ExchangeRateManager<br/>(Monotonic 10m TTL)"]
+        OER["Open Exchange Rates"] -.->|"Failover FX"| ERM
+        ERM -->|"USD and INR Valuations"| CP
     end
 
     subgraph BROKER["2. Event Backbone"]
-        CP -->|Kafka Producer| KAFKA[("Apache Kafka Broker<br/>Topic: stock-ticks (KRaft Mode)")]
+        CP -->|"Kafka Producer"| KAFKA[("Apache Kafka Broker<br/>Topic: stock-ticks (KRaft Mode)")]
     end
 
     subgraph STREAMING["3. Distributed Stream Processing & CEP"]
         KAFKA --> SPARK["PySpark Structured Streaming Engine"]
         SPARK --> WM["Event-Time Watermark (30 Seconds)"]
-        WM -->|Stream 1: Raw Append (3s Trigger)| CH_RAW[("ClickHouse: stocks.ticks")]
-        WM -->|Stream 2: 1m Tumbling Window (10s Trigger)| AGG["1-Minute In-Memory Aggregations<br/>VWAP, OHLC, Min, Max, Volume"]
+        WM -->|"Stream 1: Raw Append (3s Trigger)"| CH_RAW[("ClickHouse: stocks.ticks")]
+        WM -->|"Stream 2: 1m Tumbling Window (10s Trigger)"| AGG["1-Minute In-Memory Aggregations<br/>VWAP, OHLC, Min, Max, Volume"]
         AGG --> CH_AGG[("ClickHouse: stocks.ticks_1m_agg")]
 
         KAFKA --> AD["Anomaly Detection Engine<br/>anomaly_detector.py"]
-        AD -->|Rolling Z-Score >= 3.0σ| WH["Webhook Dispatcher<br/>(Discord / Slack)"]
+        AD -->|"Rolling Z-Score >= 3.0 sigma"| WH["Webhook Dispatcher<br/>(Discord / Slack)"]
         AD --> CH_ALERT[("ClickHouse: stocks.market_alerts")]
     end
 
@@ -59,13 +59,13 @@ flowchart TD
         CH_RAW -.-> API["FastAPI Asynchronous Backend (Port 8502)"]
         CH_AGG -.-> API
         CH_ALERT -.-> API
-        API --> UI["Institutional Single-Page Application (SPA)<br/>• Market Overview (Dashboard)<br/>• Live Market Stream<br/>• Price Analytics<br/>• Recent Trades Blotter<br/>• Anomaly Detection Engine<br/>• Pipeline Observability Cockpit"]
+        API --> UI["Institutional Single-Page Application (SPA)<br/>Market Overview (Dashboard)<br/>Live Market Stream<br/>Price Analytics<br/>Recent Trades Blotter<br/>Anomaly Detection Engine<br/>Pipeline Observability Cockpit"]
     end
 ```
 
 ---
 
-## ⚡ Key Highlights & Engineering Features
+## Key Highlights & Engineering Features
 
 ### 1. High-Frequency Real-Time Ingestion
 * Ingests real-time ticks from **Coinbase Pro WebSocket** (`wss://ws-feed.exchange.coinbase.com`) across 6 major instruments: `BTC-USD`, `ETH-USD`, `SOL-USD`, `XRP-USD`, `DOGE-USD`, and `LTC-USD`.
