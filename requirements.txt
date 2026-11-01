@@ -13,5 +13,5 @@ uvicorn==0.32.0
 # ClickHouse Python client
 clickhouse-connect==0.8.9
 # Flink Python API (requires Java 11, supports Python 3.12)
-setuptools  # Provides distutils for pemja build
+setuptools  # Provides distutils for pemja builds
 apache-flink==1.20.0
