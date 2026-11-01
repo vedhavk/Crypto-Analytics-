@@ -201,6 +201,25 @@ class TestPureUnitHelpers(unittest.TestCase):
         self.assertFalse(tracker.is_primed)
         self.assertIsNone(tracker.high_watermark_ts)
 
+    def test_landing_and_terminal_routes(self):
+        """Verify / serves landing page and /terminal serves trading terminal."""
+        from fastapi.testclient import TestClient
+        from src.production.dashboard.web_app import app
+
+        client = TestClient(app)
+
+        res_root = client.get("/")
+        self.assertEqual(res_root.status_code, 200)
+        self.assertIn("See what", res_root.text)
+
+        res_term = client.get("/terminal")
+        self.assertEqual(res_term.status_code, 200)
+        self.assertIn("appDashboard", res_term.text)
+
+        res_landing = client.get("/landing")
+        self.assertEqual(res_landing.status_code, 200)
+        self.assertIn("See what", res_landing.text)
+
 
 # =============================================================================
 # SUITE 2: REAL CLICKHOUSE SQL INTEGRATION TESTS

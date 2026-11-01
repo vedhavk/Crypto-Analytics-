@@ -20,7 +20,7 @@ def main():
 
     if not webhook_url:
         print("=" * 65)
-        print("❌ Error: No Discord Webhook URL provided.")
+        print("[ERROR] Error: No Discord Webhook URL provided.")
         print("=" * 65)
         print("Usage:")
         print('  python test_discord.py "https://discord.com/api/webhooks/..."')
@@ -57,12 +57,12 @@ def main():
 
     if success:
         print()
-        print("✅ SUCCESS! Alert dispatched to Discord.")
+        print("[SUCCESS] SUCCESS! Alert dispatched to Discord.")
         print(f"Status: {msg}")
         print("Check your Discord channel for the Rich Embed notification!")
     else:
         print()
-        print(f"❌ FAILED: {msg}")
+        print(f"[FAILED] FAILED: {msg}")
 
     print("=" * 65)
 

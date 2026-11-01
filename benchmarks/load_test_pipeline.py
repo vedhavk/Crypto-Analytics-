@@ -74,7 +74,7 @@ def main():
     args = parser.parse_args()
 
     print("=" * 70)
-    print("🚀 DISTRIBUTED STREAMING PIPELINE BENCHMARK")
+    print("DISTRIBUTED STREAMING PIPELINE BENCHMARK")
     print("=" * 70)
     print(f"Target Injection Rate:  {args.rate:,} ticks/sec")
     print(f"Test Duration:          {args.duration} seconds")
@@ -95,7 +95,7 @@ def main():
         ).result_rows[0]
         initial_compressed = st_res[0]
         initial_ratio = st_res[2]
-        print(f"📊 Initial ClickHouse Ticks: {initial_ticks:,} (Storage: {initial_compressed}, Ratio: {initial_ratio}x)")
+        print(f"Initial ClickHouse Ticks: {initial_ticks:,} (Storage: {initial_compressed}, Ratio: {initial_ratio}x)")
 
         price_map = dict(BASE_PRICES)
         fx_rate = FX_USD_INR
@@ -108,7 +108,7 @@ def main():
         except Exception:
             pass
     except Exception as e:
-        print(f"⚠️ Warning: Could not connect to ClickHouse: {e}")
+        print(f"Warning: Could not connect to ClickHouse: {e}")
         ch = None
         initial_ticks = 0
         price_map = dict(BASE_PRICES)
@@ -123,7 +123,7 @@ def main():
         batch_size=32768,
     )
 
-    print("\n⚡ Beginning Injection...")
+    print("\nBeginning Injection...")
     start_time = time.time()
     total_sent = 0
     batch_interval = 0.05  # send chunks every 50ms
@@ -149,7 +149,7 @@ def main():
     total_elapsed = time.time() - start_time
     effective_rate = total_sent / total_elapsed if total_elapsed > 0 else 0
 
-    print(f"✅ Published {total_sent:,} ticks in {total_elapsed:.2f}s (Avg Rate: {effective_rate:,.1f} msgs/sec)")
+    print(f"[OK] Published {total_sent:,} ticks in {total_elapsed:.2f}s (Avg Rate: {effective_rate:,.1f} msgs/sec)")
     print(f"⏱️  Producer Flush Time: {flush_time * 1000:.1f}ms")
 
     # 3. Wait for Spark streaming micro-batch (trigger 3s) to persist into ClickHouse
@@ -168,7 +168,7 @@ def main():
         ).result_rows[0]
 
         print("\n" + "=" * 70)
-        print("📈 BENCHMARK RESULTS")
+        print("BENCHMARK RESULTS")
         print("=" * 70)
         print(f"Ticks Published to Kafka:        {total_sent:,}")
         print(f"Ticks Ingested into ClickHouse:  {delta_ticks:,}")
@@ -199,7 +199,7 @@ def main():
 """
         with open("benchmarks/BENCHMARK_RESULTS.md", "w", encoding="utf-8") as f:
             f.write(report_content)
-        print("📝 Detailed report saved to benchmarks/BENCHMARK_RESULTS.md\n")
+        print("Detailed report saved to benchmarks/BENCHMARK_RESULTS.md\n")
 
     producer.close()
 

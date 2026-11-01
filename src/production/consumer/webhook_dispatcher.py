@@ -123,7 +123,7 @@ class AlertWebhookDispatcher:
             {"name": "Return", "value": f"{ret_pct:+.3f}%", "inline": True},
             {"name": "Threshold", "value": f"≥ {data.get('threshold', 3.0):.1f}σ (Gaussian)", "inline": True},
             {"name": "Timestamp", "value": str(data.get("alert_time") or datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")), "inline": True},
-            {"name": "Pipeline Source", "value": "Coinbase Pro ➔ Kafka ➔ Spark", "inline": True},
+            {"name": "Pipeline Source", "value": "Coinbase Pro -> Kafka -> Spark", "inline": True},
         ]
 
         payload = {

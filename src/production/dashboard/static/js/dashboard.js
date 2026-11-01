@@ -1531,9 +1531,11 @@ function initOrUpdateLiveMarketChart() {
  * Toggles the terminal theme between Light and Dark mode.
  * Dynamically adapts Chart.js gridlines and colors for optimal contrast.
  */
-function toggleTheme() {
-    isDarkMode = !isDarkMode;
+function setTheme(dark) {
+    isDarkMode = dark;
     document.body.classList.toggle('dark-theme', isDarkMode);
+    document.body.classList.toggle('light-theme', !isDarkMode);
+    try { localStorage.setItem('theme', isDarkMode ? 'dark' : 'light'); } catch (e) {}
 
     const sun = document.querySelector('.sun-icon');
     const moon = document.querySelector('.moon-icon');
@@ -1547,9 +1549,22 @@ function toggleTheme() {
         chartInstance.options.scales.y.grid.color = isDarkMode ? 'rgba(55, 65, 81, 0.5)' : 'rgba(226, 232, 240, 0.8)';
         chartInstance.update();
     }
+}
 
+function toggleTheme() {
+    setTheme(!isDarkMode);
     showToast(`Switched to ${isDarkMode ? 'Dark' : 'Light'} Mode`);
 }
+
+// Initialize theme from localStorage
+try {
+    const savedTheme = localStorage.getItem('theme');
+    if (savedTheme === 'dark') {
+        setTheme(true);
+    } else if (savedTheme === 'light') {
+        setTheme(false);
+    }
+} catch (e) {}
 
 function toggleChartViewMode() {
     showToast('Grid View toggled: 1-Minute Live Candlesticks');
@@ -1657,7 +1672,7 @@ function simulateAnomalyAlert() {
     };
 
     updateAnomalyAlertsTable([alertObj, ...cachedAlerts]);
-    showToast(`⚡ Volatility Alert: ${selectedSymbol} |Z| = ${alertObj.z_score}σ`);
+    showToast(`Volatility Alert: ${selectedSymbol} |Z| = ${alertObj.z_score}σ`);
 }
 
 function viewAllTrades() {

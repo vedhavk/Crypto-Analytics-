@@ -159,19 +159,26 @@ body {
 
 /* Active Nav Item - Black Pill (Matches user screenshot) */
 .nav-item.active {
-    background: #0F172A;
-    color: #FFFFFF;
+    background: #EFF6FF;
+    color: #1D4ED8;
     font-weight: 600;
-    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.12);
-}
-
-body.dark-theme .nav-item.active {
-    background: #3B82F6;
-    color: #FFFFFF;
+    border: 1px solid #BFDBFE;
+    box-shadow: 0 1px 3px rgba(37, 99, 235, 0.08);
 }
 
 .nav-item.active svg {
-    color: #FFFFFF;
+    color: #1D4ED8;
+}
+
+body.dark-theme .nav-item.active {
+    background: #1E293B;
+    color: #60A5FA;
+    border: 1px solid #3B82F6;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+
+body.dark-theme .nav-item.active svg {
+    color: #60A5FA;
 }
 
 .badge-counter {
@@ -1318,7 +1325,7 @@ body.dark-theme .toast-notification {
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    background: #0F172A;
+    background: var(--brand-accent);
     color: #FFFFFF;
     border: none;
     border-radius: var(--radius-md);
@@ -1330,9 +1337,9 @@ body.dark-theme .toast-notification {
 }
 
 .btn-action-primary:hover {
-    background: #1E293B;
+    background: #1D4ED8;
     transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.18);
+    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
 }
 
 body.dark-theme .btn-action-primary {

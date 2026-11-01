@@ -293,11 +293,24 @@ except ImportError:
 # =============================================================================
 
 @app.get("/")
+async def root():
+    """Serve the landing page if available, falling back to the trading terminal."""
+    landing_file = os.path.join(STATIC_DIR, "landing.html")
+    headers = {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0",
+    }
+    if os.path.exists(landing_file):
+        return FileResponse(landing_file, headers=headers)
+    return FileResponse(os.path.join(STATIC_DIR, "crypto_index.html"), headers=headers)
+
+
 @app.get("/app")
 @app.get("/dashboard")
 @app.get("/terminal")
-async def root():
-    """Serve the main institutional crypto trading dashboard directly."""
+async def terminal():
+    """Serve the institutional crypto trading terminal directly."""
     headers = {
         "Cache-Control": "no-cache, no-store, must-revalidate",
         "Pragma": "no-cache",
@@ -308,7 +321,7 @@ async def root():
 
 @app.get("/landing")
 async def landing():
-    """Serve dedicated landing page if static/landing.html exists, else redirect to dashboard."""
+    """Serve dedicated landing page if static/landing.html exists, else redirect to terminal."""
     landing_file = os.path.join(STATIC_DIR, "landing.html")
     if os.path.exists(landing_file):
         headers = {
@@ -317,7 +330,7 @@ async def landing():
             "Expires": "0",
         }
         return FileResponse(landing_file, headers=headers)
-    return RedirectResponse(url="/", status_code=302)
+    return RedirectResponse(url="/terminal", status_code=302)
 
 
 @app.get("/api/latest")

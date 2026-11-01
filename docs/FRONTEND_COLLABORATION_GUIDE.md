@@ -4,7 +4,7 @@ Welcome! If you are collaborating on the **CryptoPulse** frontend, this guide co
 
 ---
 
-## 🚀 1. Quickstart (Zero Docker Required)
+## 1. Quickstart (Zero Docker Required)
 
 You **do not need to install or run Docker, Kafka, Spark, or ClickHouse** to design and develop the frontend. 
 
@@ -30,7 +30,7 @@ If you are developing a separate frontend app (e.g. Vite on `http://localhost:51
 
 ---
 
-## 📁 2. Frontend Directory Structure
+## 2. Frontend Directory Structure
 
 All static web assets are located in `src/production/dashboard/static/`:
 
@@ -42,12 +42,12 @@ src/production/dashboard/static/
 │   └── dashboard.js           # Chart.js rendering, SSE stream listener, OFI, indicators
 ├── crypto_index.html          # Main institutional trading terminal
 ├── stock_index.html           # Legacy stock terminal variant
-└── landing.html               # 🌟 TARGET: New landing page (create here!)
+└── landing.html               # TARGET: New landing page (create here!)
 ```
 
 ---
 
-## 🎨 3. Design System & Style Tokens
+## 3. Design System & Style Tokens
 
 The UI is built with modern CSS custom properties with zero heavy framework bloat. You can reuse the following tokens in your landing page and dashboard components:
 
@@ -70,7 +70,7 @@ The UI is built with modern CSS custom properties with zero heavy framework bloa
 
 ---
 
-## 🔌 4. API Cheatsheet (Connecting Frontend to Backend)
+## 4. API Cheatsheet (Connecting Frontend to Backend)
 
 All endpoints return JSON and are available at `http://localhost:8502`:
 
@@ -147,7 +147,7 @@ All endpoints return JSON and are available at `http://localhost:8502`:
 
 ---
 
-## 🎯 5. Suggested Collaboration Tasks
+## 5. Suggested Collaboration Tasks
 
 ### Task 1: Create the Landing Page (`landing.html`)
 Build a high-converting, responsive landing page showcasing the CryptoPulse ecosystem:

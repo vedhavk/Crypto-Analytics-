@@ -14,9 +14,9 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
     <!-- CryptoPulse Stylesheet -->
-    <link rel="stylesheet" href="/static/css/dashboard.css?v=2.2">
+    <link rel="stylesheet" href="/static/css/dashboard.css?v=2.4">
     <!-- Main Logic Script -->
-    <script src="/static/js/dashboard.js?v=2.3" defer></script>
+    <script src="/static/js/dashboard.js?v=2.4" defer></script>
 </head>
 
 <body class="light-theme">
@@ -25,7 +25,7 @@
         <!-- LEFT SIDEBAR -->
         <aside class="dashboard-sidebar">
             <!-- Sidebar Header / Logo -->
-            <div class="sidebar-brand">
+            <a href="/" class="sidebar-brand" style="text-decoration: none; color: inherit; display: flex; align-items: center; cursor: pointer;" title="Back to Landing Page">
                 <div class="logo-icon small">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                         <polygon points="12 2 19 8.5 19 15.5 12 22 5 15.5 5 8.5 12 2"></polygon>
@@ -39,7 +39,7 @@
                     </svg>
                 </div>
                 <span class="brand-title">CryptoPulse</span>
-            </div>
+            </a>
 
             <!-- Sidebar Nav Links -->
             <nav class="sidebar-nav">
@@ -290,7 +290,7 @@
                 <div class="spread-pulse-card" onclick="setSidebarSection('arbitrage-spreads')" title="Click to view full Arbitrage &amp; Spread Terminal">
                     <div class="spread-card-top">
                         <div class="spread-card-title-group">
-                            <span class="spread-icon">⚡</span>
+                            <span class="spread-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block; vertical-align:middle;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg></span>
                             <div>
                                 <span class="spread-title">Coinbase ↔ Kraken Cross-Exchange Arbitrage</span>
                                 <span class="spread-sub">Event-time stream join across independent clocks</span>
@@ -321,7 +321,7 @@
                 <div class="spread-pulse-card india" onclick="setSidebarSection('arbitrage-spreads')" title="Click to view full India Premium details">
                     <div class="spread-card-top">
                         <div class="spread-card-title-group">
-                            <span class="spread-icon">🇮🇳</span>
+                            <span class="spread-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block; vertical-align:middle;"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg></span>
                             <div>
                                 <span class="spread-title">India Regulatory Premium (CoinDCX vs Global)</span>
                                 <span class="spread-sub">CoinDCX INR vs Coinbase USD × ECB FX Rate</span>
@@ -1293,7 +1293,7 @@
                     <div class="methodology-grid">
                         <div class="methodology-card">
                             <div class="methodology-card-header">
-                                <span class="methodology-icon">⚡</span>
+                                <span class="methodology-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block; vertical-align:middle;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg></span>
                                 <h4>Cross-Exchange Arbitrage: Why Opportunities are "Rare and Brief"</h4>
                             </div>
                             <p>
@@ -1306,7 +1306,7 @@
 
                         <div class="methodology-card">
                             <div class="methodology-card-header">
-                                <span class="methodology-icon">🇮🇳</span>
+                                <span class="methodology-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block; vertical-align:middle;"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg></span>
                                 <h4>India Premium: Structural Regulatory Capital Controls</h4>
                             </div>
                             <p>

@@ -214,10 +214,10 @@ Kafka needs **two listeners** because of how Docker networking works.
 **The Problem:**
 
 ```text
-stock_producer.py -----> localhost:9092 -----> Kafka    ✅ Works
+stock_producer.py -----> localhost:9092 -----> Kafka    [OK] Works
 (your machine)
 
-Spark container --> localhost:9092 --> ???        ❌ Fails!
+Spark container --> localhost:9092 --> ???        [FAIL] Fails!
 (inside Docker)     (looks inside itself, not Kafka)
 ```
 
