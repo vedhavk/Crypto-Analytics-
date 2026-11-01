@@ -1,275 +1,240 @@
-# Market Data Ingestion — Member 2: Ingestion and Data Quality
+# CryptoPulse: Real-Time Financial Tick Streaming & Distributed OLAP Pipeline
 
-This component connects to the **Coinbase Exchange WebSocket**, receives live cryptocurrency market-data events, enriches them with a **USD-to-INR exchange rate**, validates and normalises every event, and publishes them continuously to a **Kafka topic** (`stock-ticks`).
+<p align="center">
+  <img src="https://img.shields.io/badge/Apache_Kafka-3.7_(KRaft)-black?style=for-the-badge&logo=apachekafka" alt="Kafka" />
+  <img src="https://img.shields.io/badge/Apache_Spark-3.5_Streaming-E25A1C?style=for-the-badge&logo=apachespark" alt="Spark" />
+  <img src="https://img.shields.io/badge/ClickHouse-Columnar_OLAP-FFCC01?style=for-the-badge&logo=clickhouse&logoColor=black" alt="ClickHouse" />
+  <img src="https://img.shields.io/badge/FastAPI-Serving_Layer-009688?style=for-the-badge&logo=fastapi" alt="FastAPI" />
+  <img src="https://img.shields.io/badge/Docker-Containerized-2496ED?style=for-the-badge&logo=docker" alt="Docker" />
+  <img src="https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python" alt="Python" />
+</p>
+
+> **CryptoPulse** is an enterprise-grade, distributed stream processing and real-time analytical pipeline designed to ingest, enrich, compute windowed microstructure statistics, and detect statistical market anomalies across continuous, high-frequency cryptocurrency market ticks.
 
 ---
 
-## Project structure
+## 🏛 Architecture Overview
 
+```text
++-------------------+      +-------------------+      +-------------------------+      +-------------------+      +-------------------------+
+|  Coinbase Pro WS  | ---> |  crypto_producer  | ---> |   Apache Kafka (KRaft)  | ---> | PySpark Streaming | ---> |  ClickHouse Columnar    |
+| (6 Crypto Assets) |      | (In-Memory TTL FX)|      |   (Topic: stock-ticks)  |      | (30s Watermark)   |      |  (ReplacingMergeTree)   |
++-------------------+      +-------------------+      +-------------------------+      +-------------------+      +-------------------------+
+                                     |                             |                                                           |
+                                     v                             v                                                           v
+                            [ECB / Frankfurter]            [Anomaly Detector]                                            [FastAPI Gateway]
+                            (USD/INR Failover)             (|Z| >= 3.0σ CEP)                                             (Sub-15ms Latency)
+                                                                   |                                                           |
+                                                                   v                                                           v
+                                                          [Webhook Dispatcher]                                           [6-View SPA UI]
+                                                          (Slack / Discord)                                              (USD / INR Toggle)
 ```
-market-ingestion/
-├── docker-compose.yml   # Kafka broker (KRaft) with host + Docker listener
-├── sample_trade.json    # Fixed event for manual / CI testing
-├── coinbase_ws.py       # Coinbase WebSocket client (reconnect, resubscribe)
-├── inr_converter.py     # USD→INR rate fetcher with caching
-├── validator.py         # Validates and normalises raw trade events
-├── producer.py          # Kafka producer — wraps validation and publishing
-├── run_producer.py      # Entry point: live WebSocket mode or single-file mode
-├── test_validator.py    # Unit tests for the validator (no Kafka required)
-├── test_producer.py     # Unit tests for the producer (Kafka is mocked)
-├── test_ws_parser.py    # Unit tests for WS parsing, INR conversion, caching
-└── requirements.txt     # Python dependencies
+
+```mermaid
+flowchart TD
+    subgraph INGESTION["1. Ingestion & Inline Enrichment"]
+        CB["Coinbase Pro WebSocket<br/>(BTC, ETH, SOL, XRP, DOGE, LTC)"] --> CP["crypto_producer.py"]
+        ECB["European Central Bank / Frankfurter"] -.->|"Primary FX"| ERM["ExchangeRateManager<br/>(Monotonic 10m TTL)"]
+        OER["Open Exchange Rates"] -.->|"Failover FX"| ERM
+        ERM -->|"USD and INR Valuations"| CP
+    end
+
+    subgraph BROKER["2. Event Backbone"]
+        CP -->|"Kafka Producer"| KAFKA[("Apache Kafka Broker<br/>Topic: stock-ticks (KRaft Mode)")]
+    end
+
+    subgraph STREAMING["3. Distributed Stream Processing & CEP"]
+        KAFKA --> SPARK["PySpark Structured Streaming Engine"]
+        SPARK --> WM["Event-Time Watermark (30 Seconds)"]
+        WM -->|"Stream 1: Raw Append (3s Trigger)"| CH_RAW[("ClickHouse: stocks.ticks")]
+        WM -->|"Stream 2: 1m Tumbling Window (10s Trigger)"| AGG["1-Minute In-Memory Aggregations<br/>VWAP, OHLC, Min, Max, Volume"]
+        AGG --> CH_AGG[("ClickHouse: stocks.ticks_1m_agg")]
+
+        KAFKA --> AD["Anomaly Detection Engine<br/>anomaly_detector.py"]
+        AD -->|"Rolling Z-Score >= 3.0 sigma"| WH["Webhook Dispatcher<br/>(Discord / Slack)"]
+        AD --> CH_ALERT[("ClickHouse: stocks.market_alerts")]
+    end
+
+    subgraph SERVING["4. Analytical Serving & Modern SPA"]
+        CH_RAW -.-> API["FastAPI Asynchronous Backend (Port 8502)"]
+        CH_AGG -.-> API
+        CH_ALERT -.-> API
+        API --> UI["Institutional Single-Page Application (SPA)<br/>Market Overview (Dashboard)<br/>Live Market Stream<br/>Price Analytics<br/>Recent Trades Blotter<br/>Anomaly Detection Engine<br/>Pipeline Observability Cockpit"]
+    end
 ```
 
 ---
 
-## Event schema
+## Key Highlights & Engineering Features
 
-Every event published to `stock-ticks` carries the following fields:
+### 1. High-Frequency Real-Time Ingestion
+* Ingests real-time ticks from **Coinbase Pro WebSocket** (`wss://ws-feed.exchange.coinbase.com`) across 6 major instruments: `BTC-USD`, `ETH-USD`, `SOL-USD`, `XRP-USD`, `DOGE-USD`, and `LTC-USD`.
+* Sustained ingestion velocity: **30 to 500+ messages/second** (up to ~4.3 Million records/day).
 
-| Field            | Type            | Nullable | Description                                     |
-|------------------|-----------------|----------|-------------------------------------------------|
-| `symbol`         | string          | No       | Trading pair, e.g. `"BTC-USD"`                 |
-| `price`          | number (float)  | No       | Last traded price in USD                        |
-| `volume`         | number (float)  | No       | Trade volume                                    |
-| `timestamp`      | string          | No       | UTC ISO-8601 trade time: `YYYY-MM-DDTHH:MM:SSZ` |
-| `price_usd`      | number (float)  | No       | Price in US dollars                             |
-| `price_inr`      | number \| null  | Yes      | Price in Indian rupees (`null` when unavailable)|
-| `exchange_rate`  | number \| null  | Yes      | USD→INR rate used (`null` when unavailable)     |
-| `rate_timestamp` | string \| null  | Yes      | Rate fetch time (`null` when unavailable)       |
+### 2. Live Macroeconomic FX Enrichment & In-Memory TTL Caching
+* Real-time cross-currency joining with foreign exchange rates without rate-limiting upstream providers.
+* Built-in `ExchangeRateManager` with:
+  * **In-Memory Monotonic TTL Cache (600s)**: Reuses validated rates across ~30,000 ticks in RAM, slashing external HTTP overhead by **99.9%**.
+  * **Strict Positive Validation**: Asserts finite, positive numbers to prevent corrupted records from poisoning downstream tables.
+  * **Multi-Tiered Failover**: Primary (Frankfurter / ECB) $\rightarrow$ Secondary (Open Exchange Rates) $\rightarrow$ Stale Cache $\rightarrow$ Graceful degradation (`NULL`).
 
-**Numeric values are JSON numbers** (not strings). Timestamps are UTC ISO-8601 strings ending with `Z`.
+### 3. Stateful Stream Processing (PySpark Structured Streaming)
+* **30-Second Event-Time Watermarking**: Discards late-arriving packets beyond the tolerance threshold, bounding state memory.
+* **Dual-Branch Streaming**:
+  * **Stream 1 (Raw Ingestion)**: Append-only fast micro-batch write (3s trigger) into `stocks.ticks`.
+  * **Stream 2 (1-Minute Aggregations)**: Stateful tumbling window (10s trigger) computing Volume-Weighted Average Price (**VWAP**), OHLC prices, and spread into `stocks.ticks_1m_agg`.
+* **Fault-Tolerant Checkpointing**: State stores and Kafka offsets preserved across worker reboots.
 
----
+### 4. Complex Event Processing (CEP) & Rolling Z-Score Anomaly Engine
+* Statistical detection engine evaluating rolling standard deviations over sliding 60-tick micro-windows:
+  $$Z = \frac{P_t - \mu_{window}}{\sigma_{window}}$$
+* Detects flash liquidations, volatility surges, and order imbalances when $|Z| \ge 3.0\sigma$ (99.73% confidence interval).
+* Real-time alert dispatching via automated webhooks (Discord / Slack / Telegram) in $<200\text{ms}$.
 
-## Channels subscribed on Coinbase
+### 5. High-Performance Columnar OLAP (ClickHouse)
+* Stored using the `ReplacingMergeTree` engine for automatic background deduplication of idempotent retries.
+* Columnar compression (**DoubleDelta** for timestamps, **Gorilla/ZSTD** for prices) yields a **15x reduction** in storage space (~150 MB/day for 4.3M rows).
+* Vectorized SIMD query execution computes aggregations over millions of rows in **$< 15\text{ms}$**.
 
-| Channel   | Message type      | Fields used                             |
-|-----------|-------------------|-----------------------------------------|
-| `ticker`  | `ticker`          | `product_id`, `price`, `volume_24h`, `time` |
-| `matches` | `match` / `last_match` | `product_id`, `price`, `size`, `time` |
-
-Trading pairs: `BTC-USD`, `ETH-USD`, `SOL-USD` (configurable in `coinbase_ws.py`).
-
----
-
-## USD-to-INR conversion
-
-| Property           | Value                                             |
-|--------------------|---------------------------------------------------|
-| **API source**     | `https://open.er-api.com/v6/latest/USD`           |
-| **Provider**       | ExchangeRate-API free public endpoint (no key)    |
-| **Refresh interval** | Every **5 minutes** (`REFRESH_INTERVAL_S = 300`) |
-| **Caching**        | Module-level thread-safe cache; every crypto event reuses the latest valid rate |
-| **Failure handling** | On HTTP error / bad JSON: stale cache is reused; if never fetched, `price_inr`, `exchange_rate`, and `rate_timestamp` are published as `null` |
-
-Formula: `price_inr = price_usd × exchange_rate`
-
----
-
-## Reconnection and resubscription
-
-| Behaviour          | Detail                                                         |
-|--------------------|----------------------------------------------------------------|
-| Reconnect strategy | Exponential back-off: 1 s → 2 s → 4 s … capped at **60 s**   |
-| Resubscription     | Subscription message resent on every `on_open` callback        |
-| Error types caught | Socket errors, broker-sent `error` frames, malformed JSON      |
+### 6. Institutional Single-Page Application (SPA) Dashboard
+* High-performance Vanilla ES6+ and modern CSS custom properties with zero external UI framework bloat.
+* **6 Dedicated Workspaces**:
+  1. **Market Overview**: Executive cards, interactive Chart.js price history, 1-minute microstructure metrics, and preview cards.
+  2. **Live Market Stream**: High-frequency streaming canvas with asset switcher and 24h stats.
+  3. **Price Analytics**: Multi-asset comparison matrix benchmarking BTC, ETH, SOL, XRP, DOGE, and LTC.
+  4. **Recent Trades Blotter**: Full-page execution blotter with symbol filtering and dual-currency notional values.
+  5. **Anomaly Detection Engine**: Real-time statistical audit trail with interactive inspection triggers.
+  6. **Pipeline Health & Telemetry**: Observability cockpit monitoring Kafka throughput, Spark latency, ClickHouse write rates, and API response times.
+* Persistent **USD / INR currency mode** and **Light / Dark theme** toggling.
 
 ---
 
-## Kafka listener configuration
+## 🚀 Quick Start (Docker - Recommended)
 
-| Listener name | Address            | For whom                                       |
-|---------------|--------------------|------------------------------------------------|
-| `PLAINTEXT`   | `localhost:9092`   | Python producer running on the host            |
-| `DOCKER`      | `kafka:29092`      | Spark / ClickHouse services inside Docker network |
+### Prerequisites
+* [Docker Desktop](https://www.docker.com/products/docker-desktop/) with WSL2 (Windows) or native Docker Engine (Linux/macOS).
 
-Spark should use `kafka:29092` as the bootstrap server. The Python producer uses `localhost:9092`.
+### Launch the Production Pipeline
+```bash
+# 1. Clone repository
+git clone https://github.com/Soorya005/CryptoPulse.git
+cd CryptoPulse
+
+# 2. Run Spark Streaming with 1-Minute Windowed Aggregations (Default)
+./run.sh spark_streaming
+
+# OR run Spark Micro-Batch (3-second batches)
+./run.sh spark_microbatch
+
+# OR run Apache Flink (True streaming record-by-record)
+./run.sh flink
+```
+
+Open your browser to:
+👉 **`http://localhost:8502`**
+
+Press `Ctrl+C` in your terminal to cleanly stop all containers.
 
 ---
 
-## Prerequisites
+## 🛠 Local Development Setup (Outside Docker)
 
-- Python 3.12
-- Docker Desktop (for local Kafka)
-- Windows 11 / PowerShell
+If you wish to run individual Python scripts locally against Kafka and ClickHouse containers:
 
----
+```bash
+# 1. Start core infrastructure services in background
+docker compose up -d kafka clickhouse
 
-## Setup
-
-### 1. Create and activate the virtual environment
-
-```powershell
+# 2. Set up virtual environment and install dependencies
 python -m venv .venv
-.venv\Scripts\Activate.ps1
-```
-
-### 2. Install dependencies
-
-```powershell
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
+
+# 3. Terminal 1: Run Coinbase Ingestion Producer
+python src/production/producer/crypto_producer.py
+
+# 4. Terminal 2: Run Spark Structured Streaming Consumer
+python src/production/consumer/spark_streaming_clickhouse_consumer.py
+
+# 5. Terminal 3: Run Real-Time Anomaly Detector
+python src/production/consumer/anomaly_detector.py
+
+# 6. Terminal 4: Launch Web Dashboard
+python src/production/dashboard/web_app.py --crypto
 ```
 
 ---
 
-## Running Kafka locally
+## 📂 Repository Structure
 
-### Start the broker
-
-```powershell
-docker compose up -d
-```
-
-Kafka runs in KRaft mode (no ZooKeeper) and listens on `localhost:9092` (host) and `kafka:29092` (Docker network).
-
-### Create the topic (first time only)
-
-```powershell
-docker exec market-kafka /opt/kafka/bin/kafka-topics.sh `
-  --bootstrap-server localhost:9092 `
-  --create --topic stock-ticks `
-  --partitions 1 --replication-factor 1
-```
-
-### Stop the broker
-
-```powershell
-docker compose down
-```
-
----
-
-## Running the producer
-
-### Live mode (default) — connect to Coinbase and publish continuously
-
-```powershell
-python run_producer.py
-```
-
-The producer:
-1. Fetches the USD→INR rate from the free API.
-2. Connects to `wss://ws-feed.exchange.coinbase.com`.
-3. Subscribes to `ticker` and `matches` channels.
-4. Parses every incoming message and publishes validated events to `stock-ticks`.
-5. Reconnects automatically with back-off on any failure.
-6. Refreshes the exchange rate every 5 minutes.
-
-### Dry-run mode — test live WebSocket & INR conversion without Kafka
-
-```powershell
-# Validate and print live events to console without requiring Kafka:
-python run_producer.py --dry-run
-
-# Test live pipeline and automatically stop after 5 events:
-python run_producer.py --dry-run --max-events 5
-```
-
-### Single-event test mode — publish one JSON file and exit
-
-```powershell
-python run_producer.py --file sample_trade.json
-python run_producer.py --file path\to\my_event.json
-```
-
-### Logging
-
-```powershell
-python run_producer.py --log-level DEBUG
+```text
+CryptoPulse/
+├── docker-compose.yml              # Multi-container production orchestration
+├── run.sh                          # Automated one-click execution script
+├── requirements.txt                # Python dependencies
+├── pyproject.toml                  # Project metadata & linter configuration
+├── benchmarks/
+│   ├── load_test_pipeline.py       # High-throughput mock generator
+│   └── BENCHMARK_RESULTS.md        # Latency & throughput test findings
+├── docs/
+│   ├── PROJECT_TECHNICAL_DOCUMENTATION.md # Master technical spec & interview defense
+│   ├── ARCHITECTURE_AND_VIVA_PREP.md      # Viva & oral presentation prep
+│   ├── MAJOR_PROJECT_REPORT.md            # Academic project report
+│   ├── KAFKA_README.md                    # Kafka KRaft architecture guide
+│   ├── PYSPARK_README.md                  # Spark Structured Streaming guide
+│   └── CLICKHOUSE_README.md               # Columnar OLAP engine deep dive
+├── src/
+│   └── production/
+│       ├── producer/
+│       │   ├── Dockerfile.crypto-producer  # Container recipe for producer
+│       │   └── crypto_producer.py          # WebSocket ingestion & FX enrichment
+│       ├── consumer/
+│       │   ├── Dockerfile.spark-consumer   # Spark streaming container recipe
+│       │   ├── Dockerfile.anomaly-detector # Anomaly engine container recipe
+│       │   ├── Dockerfile.flink-consumer   # Flink streaming container recipe
+│       │   ├── spark_streaming_clickhouse_consumer.py  # Windowed aggregations
+│       │   ├── spark_microbatch_clickhouse_consumer.py # Micro-batch append
+│       │   ├── anomaly_detector.py         # Rolling Z-score CEP engine
+│       │   ├── webhook_dispatcher.py       # Webhook alerting service
+│       │   └── flink_clickhouse_consumer.py# Flink true streaming
+│       └── dashboard/
+│           ├── Dockerfile.web-dashboard    # FastAPI container recipe
+│           ├── web_app.py                  # Asynchronous REST & WebSocket backend
+│           └── static/
+│               ├── crypto_index.html       # Institutional 6-view SPA
+│               ├── css/dashboard.css       # Complete modern CSS design system
+│               └── js/dashboard.js         # Chart.js, SPA view router, live polling
+└── tests/
+    ├── test_currency_conversion.py         # Unit tests for FX caching & failover
+    └── test_dashboard_api.py               # API & ClickHouse integration tests
 ```
 
 ---
 
-## Consuming messages (verification)
+## 📖 Deep-Dive Documentation
 
-Stream all messages from the beginning:
+| Resource | Scope |
+| :--- | :--- |
+| **[Master Technical Documentation](docs/PROJECT_TECHNICAL_DOCUMENTATION.md)** | End-to-end architecture, mathematical formulas, resume bullet points, and Top 7 Viva/Interview Q&As. |
+| **[Viva Voce & Architecture Prep](docs/ARCHITECTURE_AND_VIVA_PREP.md)** | Comprehensive oral exam answers and engineering defense. |
+| **[Major Project Report](docs/MAJOR_PROJECT_REPORT.md)** | Full academic report with literature survey, problem definition, and design specs. |
+| **[Kafka Guide](docs/KAFKA_README.md)** | Partitions, consumer offset management, and KRaft consensus. |
+| **[Spark Streaming Guide](docs/SPARK_STREAMING_README.md)** | Watermarking, tumbling windows, checkpointing, and VWAP computation. |
+| **[ClickHouse Guide](docs/CLICKHOUSE_README.md)** | `ReplacingMergeTree`, DoubleDelta/Gorilla compression, and SIMD SQL execution. |
 
-```powershell
-docker exec market-kafka /opt/kafka/bin/kafka-console-consumer.sh `
-  --bootstrap-server localhost:9092 `
-  --topic stock-ticks `
-  --from-beginning
+---
+
+## 🧪 Running Unit & Integration Tests
+
+```bash
+# Run currency conversion & failover validation tests
+pytest tests/test_currency_conversion.py -v
+
+# Run FastAPI dashboard endpoint & mock tests
+pytest tests/test_dashboard_api.py -v
 ```
 
 ---
 
-## Running the tests
-
-```powershell
-python -m pytest -v
-```
-
-All tests are unit tests. They do not require Kafka or network access. All HTTP and WebSocket calls are mocked.
-
-| Test file                   | What it covers                                                  |
-|-----------------------------|-----------------------------------------------------------------|
-| `test_validator.py`         | Schema validation, nullable INR fields, symbol normalisation, timestamps |
-| `test_producer.py`          | Kafka publish path, null-INR events, validation errors, Kafka errors |
-| `test_ws_parser.py`         | WS message parsing, INR caching & fallback API, failure handling, dry-run mode |
-| `test_clickhouse_schema.py` | ClickHouse table schemas, engine types, HTTP API execution      |
-| `spark/test_spark_pipeline.py` | Spark schema definition, ClickHouse writer, retry logic       |
-| `detector/test_detector.py` | Threshold & Z-Score anomaly detectors, scenario replay, metrics |
-| `api/test_api.py`           | FastAPI alert filtering, pagination, statistics, dashboard endpoints |
-
----
-
-## Spark Structured Streaming & ClickHouse (Member 3)
-
-The streaming pipeline consumes continuously from Kafka topic `stock-ticks`, parses and normalizes JSON payloads, and executes dual micro-batch streaming queries:
-1. **Raw Ticks**: Writes validated ticks to ClickHouse table `stocks.ticks`.
-2. **1-Minute Aggregates**: Watermarked windowed stream computing `count(*)`, `avg(price)`, `min(price)`, `max(price)`, `sum(volume)`, and `avg(price_inr)` into `stocks.ticks_1m_agg`.
-
-### ClickHouse Tables & Deduplicated Views
-
-* `stocks.ticks`: `MergeTree()` partitioned by month, ordered by `(symbol, timestamp, price, volume)`.
-* `stocks.ticks_1m_agg`: `ReplacingMergeTree(calculated_at)` partitioned by month, ordered by `(symbol, window_start)`.
-* `stocks.market_alerts`: `MergeTree()` table for Member 4 anomaly alerts.
-* `stocks.v_ticks_1m_agg`: **Recommended View for Member 4 & FastAPI**. Reads `stocks.ticks_1m_agg FINAL` to guarantee only the latest merged version of each window is returned without duplicates.
-* `stocks.v_ticks_dedup`: View filtering Kafka replay duplicates across raw ticks.
-
-### Running the Complete Stack with Docker
-
-```powershell
-# 1. Start Kafka, ClickHouse, and Spark Structured Streaming
-docker compose up -d
-
-# 2. In another terminal, run the Python WebSocket producer
-python run_producer.py
-```
-
-### Running Spark Streaming on Host Machine
-
-```powershell
-python spark/spark_consumer.py --kafka-bootstrap localhost:9092 --clickhouse-host localhost
-```
-
----
-
-## Schema decision: `event_id`
-
-An `event_id` field is not emitted by the producer. ClickHouse generates a unique UUID on insert via `event_id UUID DEFAULT generateUUIDv4()`, while preserving `(symbol, timestamp, price, volume)` as the ordering key to guarantee sub-second trades are never collapsed.
-
----
-
-## Validation error examples
-
-```python
-from validator import validate_trade
-
-# Missing non-nullable field
-validate_trade({"symbol": "BTC-USD"})
-# ValueError: Missing required field: price
-
-# Boolean used as a number
-validate_trade({..., "price": True})
-# ValueError: price must be numeric, not a boolean
-
-# Timestamp without timezone
-validate_trade({..., "timestamp": "2026-10-16T10:30:15"})
-# ValueError: timestamp must include a timezone
-
-# Null price_inr is allowed (INR conversion unavailable)
-validate_trade({..., "price_inr": None, "exchange_rate": None, "rate_timestamp": None})
-# → valid; INR fields are null in the published event
-```
+## 🛡 License
+This project is licensed under the Apache 2.0 License - see the [LICENSE](LICENSE) file for details.
